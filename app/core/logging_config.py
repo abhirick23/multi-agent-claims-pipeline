@@ -32,28 +32,23 @@ def _configure() -> None:
 
     formatter = logging.Formatter(_FMT, datefmt=_DATE_FMT)
 
-    # Rotating file: 5 MB per file, keep 3 backups
+    # Rotating file: 5 MB per file, keep 3 backups.
+    # File-only — no StreamHandler so logs never appear in the Streamlit UI.
     file_handler = logging.handlers.RotatingFileHandler(
         _LOG_FILE, maxBytes=5 * 1024 * 1024, backupCount=3, encoding="utf-8"
     )
     file_handler.setFormatter(formatter)
     file_handler.setLevel(logging.DEBUG)
 
-    console_handler = logging.StreamHandler()
-    console_handler.setFormatter(formatter)
-    console_handler.setLevel(logging.INFO)
-
     root = logging.getLogger("app")
     root.setLevel(logging.DEBUG)
     if not root.handlers:
         root.addHandler(file_handler)
-        root.addHandler(console_handler)
 
     eval_logger = logging.getLogger("eval")
     eval_logger.setLevel(logging.DEBUG)
     if not eval_logger.handlers:
         eval_logger.addHandler(file_handler)
-        eval_logger.addHandler(console_handler)
 
 
 def get_logger(name: str) -> logging.Logger:

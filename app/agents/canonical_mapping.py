@@ -122,12 +122,13 @@ class CanonicalMapper(BaseAgent):
                 diagnosis_text or "", treatment_text or "", candidate_wp_keys, candidate_exclusions
             )
         except GeminiAPIError as exc:
+            short = str(exc).split("\n")[0][:120]
             trace.add(
                 TraceStage.POLICY_EVALUATION,
                 "canonical_mapping_llm_fallback",
                 TraceStatus.DEGRADED,
-                f"LLM-assisted canonical mapping unavailable ({exc}); keeping keyword-only result (no match).",
-                detail={"error": str(exc)},
+                f"LLM-assisted canonical mapping unavailable (Gemini API error); keeping keyword-only result.",
+                detail={"error": short},
             )
             return "NONE", [], None, None
 

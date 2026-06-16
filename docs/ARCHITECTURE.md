@@ -151,7 +151,7 @@ The final synthesis step:
    regardless of (2)/(3) — too much of the pipeline degraded to trust the result.
 5. Else if `confidence_score < CONFIDENCE_ADVISORY_REVIEW (0.75)` → keep the decision but set
    `manual_review_recommended=True` with a reason (TC011: one failed extraction, claim stays
-   `APPROVED`, confidence ≈0.70, flagged for a human to double-check).
+   `APPROVED`, confidence=0.65, flagged for a human to double-check).
 6. `approved_amount` / `financial_breakdown` are only populated for `APPROVED`/`PARTIAL`.
    `rejection_reasons` are built by matching `policy_eval.rejection_reasons` codes back to the
    matching FAILed `PolicyCheckResult` to recover the full message + `policy_reference`.
@@ -205,9 +205,24 @@ Agent — §3.5):
 - `CONFIDENCE_FORCE_MANUAL_REVIEW = 0.45` — hard floor, overrides the decision itself.
 - `CONFIDENCE_ADVISORY_REVIEW = 0.75` — below this, keep the decision but recommend review.
 
-A clean injected run (TC004, TC012) stays at `1.0`. TC011 (one FAILED extraction, `−0.30`) lands
-at `0.70` — between the two thresholds, exactly the "keep APPROVED but recommend review" case the
-test requires.
+**TC011 confidence breakdown (verified against actual output):**
+
+TC011 has `simulate_component_failure=True`. The `ExtractionAgent.run()` handles this internally
+and returns `ExtractionResult(extraction_status="FAILED", overall_confidence=LOW)` without
+raising. Because no exception propagates to the Orchestrator's `try/except`, **no
+`DegradedContext.failed_stages` entry is created** — so `FAILED_STAGE_PENALTY (−0.30)` does
+**not** apply. What applies is:
+
+| Penalty | Amount |
+|---|---|
+| F022 `extraction_status == FAILED` | −0.25 |
+| F022 `overall_confidence == LOW` | −0.10 |
+| **Total** | **−0.35** |
+
+Final score: `1.0 − 0.35 = **0.65**` — between the two thresholds (0.45 and 0.75), which is
+exactly the "keep APPROVED but flag for advisory review" outcome TC011 requires.
+
+A clean injected run (TC004, TC012) stays at `1.0`.
 
 ## 6. Explicit assumptions & tunable constants
 
@@ -283,7 +298,71 @@ changes is where `ExtractedContent`/`DocumentClassification` come from).
   - **Eval Suite** — runs all 12 cases in the browser, shows the same pass/fail checks as
     `docs/EVAL_REPORT.md`, with a button to regenerate that file.
 
-## 10. File layout
+## 10. Scale analysis — current design vs 10x load
+
+**Current load:** ~75,000 claims/year ≈ 206/day ≈ 9/hour peak. The synchronous sequential
+pipeline handles this comfortably — each claim makes 2–9 Gemini API calls (classify + extract
+per document, optionally one canonical mapping LLM call), all within Gemini's free-tier limits.
+
+**At 10x (750,000 claims/year ≈ 2,060/day ≈ 86/hour)** the design has three failure points:
+
+### What breaks and how to fix it
+
+**1. Synchronous per-document Gemini calls (biggest bottleneck)**
+
+Today, documents inside a claim are extracted sequentially:
+```
+doc1 → Gemini classify → Gemini extract
+doc2 → Gemini classify → Gemini extract   ← waits for doc1 to finish
+```
+A 3-document claim with 1-second Gemini latency takes ~6 seconds. At 86 claims/hour with bursts,
+this saturates a single process.
+
+Fix: replace `ExtractionAgent.run()` with async calls using the `google-genai` async client, and
+run all documents in a claim concurrently:
+```python
+results = await asyncio.gather(*[extract_doc(doc) for doc in claim.documents])
+```
+This collapses 6 sequential seconds to ~1 second (slowest doc). The Orchestrator becomes an
+`async def process_claim(...)`.
+
+**2. Synchronous HTTP response blocks the caller**
+
+Today, `POST /claim` waits for the full pipeline (seconds) before returning. At 86/hour with
+bursty arrivals, slow claims back up the queue.
+
+Fix: decouple submission from processing via a task queue (Celery + Redis, or Google Cloud Tasks).
+`POST /claim` returns `{claim_ref, status: "PROCESSING"}` immediately. A worker pool runs
+`process_claim()` async, writes the result to persistent storage, and optionally pushes a webhook
+or SSE update. The UI polls `/claim/{ref}/result`.
+
+**3. JSON-file `ClaimsLedger` and `PolicyRepository`**
+
+`ClaimsLedger` holds claims history in a single JSON file with no locking — concurrent writers
+corrupt it. `PolicyRepository` re-parses the JSON on every cold start.
+
+Fix: replace `ClaimsLedger` with a proper database (PostgreSQL + asyncpg, or Firestore). Cache
+`PolicyTerms` once at worker startup; invalidate on policy file change via a config-reload signal.
+
+### What does NOT need to change
+
+- **All five agent classes**: their logic is pure computation over typed models — they scale
+  horizontally with no changes.
+- **Pydantic contracts**: the input/output schemas remain the contract boundary between agent
+  versions; each can be deployed and scaled independently.
+- **Confidence scoring and policy evaluation**: fully deterministic, sub-millisecond, no I/O.
+- **The injection-mode eval harness**: still zero API calls, still fully deterministic.
+
+### Summary
+
+| Change | Impact | Effort |
+|---|---|---|
+| Async Gemini calls within a claim | ~6× throughput per worker | Medium |
+| Queue-backed async claim processing | Decouples ingestion from processing, handles bursts | Medium |
+| PostgreSQL for ClaimsLedger | Concurrent-safe, queryable fraud history | Medium |
+| Horizontal worker scaling | Linear throughput with instance count | Low (config only) |
+
+## 12. File layout
 
 ```
 app/

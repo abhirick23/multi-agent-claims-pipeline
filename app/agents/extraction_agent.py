@@ -98,12 +98,13 @@ class ExtractionAgent(BaseAgent):
         try:
             content = self.gemini.extract_content(doc.file_path, input.document_type)
         except GeminiAPIError as exc:
+            short = str(exc).split("\n")[0][:120]
             trace.add(
                 TraceStage.EXTRACTION,
                 "extract_content",
                 TraceStatus.FAILED,
-                f"{doc.file_id}: Gemini extraction failed ({exc}).",
-                detail={"file_id": doc.file_id, "error": str(exc)},
+                f"{doc.file_id}: Gemini extraction failed.",
+                detail={"file_id": doc.file_id, "error": short},
             )
             return ExtractionResult(
                 file_id=doc.file_id,
@@ -113,7 +114,7 @@ class ExtractionAgent(BaseAgent):
                 overall_confidence=ConfidenceLevel.LOW,
                 extraction_status="FAILED",
                 source="VISION_LLM",
-                error=str(exc),
+                error=short,
             )
 
         field_confidences, overall_confidence = self._score_fields(content, input.document_type)

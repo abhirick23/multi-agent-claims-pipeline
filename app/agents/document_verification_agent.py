@@ -90,13 +90,13 @@ class DocumentVerificationAgent(BaseAgent):
                     patient_name_on_doc=None,
                     source="VISION_LLM",
                 )
+                short = str(exc).split("\n")[0][:120]
                 trace.add(
                     TraceStage.VERIFICATION,
                     "classify_document",
                     TraceStatus.DEGRADED,
-                    f"{doc.file_id}: Gemini classification failed ({exc}); "
-                    f"treating as UNKNOWN/POOR.",
-                    detail={"error": str(exc)},
+                    f"{doc.file_id}: Gemini classification failed; treating as UNKNOWN/POOR.",
+                    detail={"error": short},
                 )
                 return classification
 
