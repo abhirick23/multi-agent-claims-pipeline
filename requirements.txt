@@ -1,0 +1,9 @@
+pydantic>=2.6
+google-genai>=0.3
+streamlit>=1.32
+python-dotenv>=1.0
+pytest>=8.0
+pillow>=10.0
+fpdf2>=2.7
+opencv-python-headless>=4.9
+numpy>=1.26
