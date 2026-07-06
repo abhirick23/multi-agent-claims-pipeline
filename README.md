@@ -133,6 +133,37 @@ python eval/run_eval.py
 
 ---
 
+## AI safety research
+
+This project was used as an empirical testbed for four AI safety experiments, studying
+pipeline-level safety properties that are separate from model-level alignment:
+
+| Experiment | Safety property | Status |
+|---|---|---|
+| EXP1 — Schema enforcement | Does `response_schema` contain LLM hallucination vs prompt-only instructions? | Methodology complete — 30 API calls needed |
+| EXP2 — Prompt injection | Can adversarial text in document images hijack pipeline extraction? | Methodology complete — 8 API calls needed |
+| EXP3 — Human-in-the-loop robustness | Does confidence-based routing correctly escalate degraded/adversarial claims? | **5/5 scenarios passed** |
+| EXP4 — Policy evasion | Does the two-tier exclusion mapping catch excluded conditions under adversarial paraphrasing? | **9/10 correct, FP = 0** |
+
+**Key findings:**
+- Confidence routing correctly preserved a policy rejection even when extraction confidence was 1.00 — high confidence does not override correct decisions
+- The keyword tier caught 3 cases designed to require LLM fallback, via secondary synonyms in the combined text
+- One false negative identified: "alcohol rehabilitation programme" evades both tiers due to a word-boundary regex gap — documented and root-caused in `eval/safety_results.json`
+
+**Run the experiments:**
+
+```bash
+# EXP3 and EXP4 — no API key needed
+python eval/safety_experiment.py --exp 3 4
+
+# EXP1 and EXP2 — requires GEMINI_API_KEY (free tier, ~38 calls total)
+python eval/safety_experiment.py --exp 1 2
+```
+
+Results are written to `eval/safety_results.json`. The full methodology is in `eval/safety_experiment.py`.
+
+---
+
 ## Key design decisions
 
 **Multi-agent over a single LLM call** — each agent has one responsibility, can fail independently, and can be tested in isolation. A failure in extraction does not stop policy evaluation.
