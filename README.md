@@ -110,8 +110,8 @@ The architecture and design decisions are documented in [`docs/ARCHITECTURE.md`]
 
 ```bash
 # 1. Clone and set up
-git clone https://github.com/abhirick23/plum_assignment-.git
-cd plum_assignment-
+git clone https://github.com/abhirick23/multi-agent-claims-pipeline.git
+cd multi-agent-claims-pipeline
 python -m venv venv
 venv\Scripts\activate        # Windows
 # source venv/bin/activate   # Mac/Linux
